@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Norma iOS · Quiet 主路径（交接迭代）</title>
+<style>
+  :root {
+    --bg: #f2f2f7;
+    --surface: #ffffff;
+    --ink: #000000;
+    --secondary: #3c3c43;
+    --muted: #8e8e93;
+    --hairline: rgba(60, 60, 67, 0.18);
+    --fill: rgba(120, 120, 128, 0.12);
+    --fill-strong: rgba(120, 120, 128, 0.2);
+    --blue: #007aff;
+    --orange: #ff9f0a;
+    --red: #ff3b30;
+    --green: #34c759;
+    --purple: #af52de;
+    --teal: #64d2ff;
+    --ease: cubic-bezier(0.23, 1, 0.32, 1);
+    --phone-w: 390px;
+    --phone-h: 844px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: #1c1c1e; color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+  .proto-picker {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 2147483647;
+    display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px;
+    background: rgba(10, 10, 10, 0.82);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset, 0 8px 24px rgba(0,0,0,0.24);
+    font-size: 13px; line-height: 1; user-select: none;
+  }
+  .proto-picker-highlight {
+    position: absolute; top: 4px; left: 0; height: 28px; border-radius: 999px;
+    background: rgba(255,255,255,0.12); will-change: transform;
+  }
+  .proto-picker[data-ready] .proto-picker-highlight {
+    transition: transform 250ms var(--ease), width 250ms var(--ease);
+  }
+  .proto-picker-item {
+    position: relative; display: flex; align-items: center; height: 28px; padding: 0 12px;
+    border: 0; border-radius: 999px; background: transparent; color: rgba(255,255,255,0.55);
+    font: inherit; cursor: pointer;
+  }
+  .proto-picker-item[data-active] { color: #fff; }
+  .proto-picker-divider { width: 1px; height: 16px; margin: 0 4px; background: rgba(255,255,255,0.12); }
+  .proto-picker-replay { padding: 0 10px; font-size: 14px; }
+  .demo-bar {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 96vw;
+    padding: 8px 10px; border-radius: 16px; background: rgba(10,10,10,0.88);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .demo-bar a {
+    color: rgba(255,255,255,0.7); text-decoration: none; font-size: 11px;
+    padding: 5px 9px; border-radius: 999px; background: rgba(255,255,255,0.08);
+  }
+  .demo-bar a:hover, .demo-bar a[data-on] { color: #fff; background: rgba(0,122,255,0.55); }
+  .q-panel {
+    position: fixed; top: 64px; right: 12px; width: min(320px, 92vw); z-index: 50;
+    background: rgba(28,28,30,0.94); color: #fff; border-radius: 14px; padding: 12px 14px;
+    font-size: 12px; line-height: 1.45; max-height: 50vh; overflow: auto;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+  }
+  .q-panel h3 { margin: 0 0 8px; font-size: 13px; }
+  .q-panel ol { margin: 0; padding-left: 18px; color: rgba(255,255,255,0.82); }
+  .q-panel li { margin-bottom: 6px; }
+  .q-panel .ans { color: #64d2ff; }
+  .q-toggle {
+    position: fixed; top: 64px; right: 12px; z-index: 51;
+    border: 0; border-radius: 999px; padding: 8px 12px; font-size: 12px; font-weight: 600;
+    background: rgba(255,255,255,0.12); color: #fff; cursor: pointer;
+  }
+  #stage { min-height: 100%; display: grid; place-items: center; padding: 64px 12px 88px; }
+  .phone {
+    width: min(100%, var(--phone-w)); height: min(90vh, var(--phone-h));
+    background: var(--bg); border-radius: 47px;
+    box-shadow: 0 0 0 3px #2c2c2e, 0 0 0 11px #0a0a0a, 0 40px 100px rgba(0,0,0,.55);
+    overflow: hidden; position: relative; display: flex; flex-direction: column;
+  }
+  .island {
+    position: absolute; top: 11px; left: 50%; transform: translateX(-50%);
+    width: 126px; height: 37px; background: #000; border-radius: 20px; z-index: 5; pointer-events: none;
+  }
+  .status {
+    height: 54px; padding: 14px 28px 0; display: flex; justify-content: space-between;
+    align-items: flex-start; font-size: 15px; font-weight: 600; flex-shrink: 0; position: relative; z-index: 2;
+  }
+  .status .right { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; }
+  .scroll {
+    flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; padding: 0 16px 108px; scrollbar-width: none;
+  }
+  .scroll::-webkit-scrollbar { display: none; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 6px; }
+  .icon-btn {
+    width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--fill); color: var(--ink);
+    display: grid; place-items: center; cursor: pointer;
+  }
+  .icon-btn.ghost { background: transparent; color: var(--blue); width: auto; height: auto; padding: 8px 4px; }
+  .topbar-actions { display: flex; gap: 8px; }
+  .large-title { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; margin: 0 0 4px; }
+  .subtitle { font-size: 15px; color: var(--muted); margin: 0 0 18px; }
+  .group { background: var(--surface); border-radius: 14px; overflow: hidden; margin-bottom: 16px; }
+  .row {
+    display: flex; gap: 12px; align-items: flex-start; padding: 14px 14px 13px;
+    position: relative; background: var(--surface);
+  }
+  .row + .row::before {
+    content: ""; position: absolute; left: 54px; right: 0; top: 0; height: 1px; background: var(--hairline);
+  }
+  .glyph {
+    width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+    flex-shrink: 0; margin-top: 1px; color: #fff;
+  }
+  .glyph.ask { background: var(--blue); }
+  .glyph.perm { background: var(--orange); }
+  .glyph.fail { background: var(--red); }
+  .glyph.take { background: var(--purple); }
+  .glyph.done { background: var(--green); }
+  .glyph.agent { background: #5e5ce6; }
+  .glyph.idle { background: #8e8e93; }
+  .row-body { flex: 1; min-width: 0; }
+  .row-title { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25; margin: 0 0 3px; }
+  .row-meta { font-size: 13px; color: var(--muted); line-height: 1.3; margin: 0 0 6px; }
+  .row-plan { font-size: 14px; color: var(--secondary); line-height: 1.35; margin: 0 0 10px; }
+  .draft {
+    background: var(--fill); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px;
+    font-size: 13px; color: var(--secondary); line-height: 1.4; white-space: pre-wrap;
+  }
+  .draft .more { color: var(--blue); font-weight: 500; cursor: pointer; border: 0; background: transparent; padding: 0; font-size: 13px; }
+  .countdown { font-size: 12px; font-weight: 600; color: var(--purple); margin: 0 0 8px; }
+  .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 0; border-radius: 980px; padding: 7px 13px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .chip.primary { background: var(--blue); color: #fff; }
+  .chip.secondary { background: var(--fill); color: var(--ink); }
+  .chip.danger { background: rgba(255,59,48,0.12); color: var(--red); }
+  .chip.link { background: transparent; color: var(--blue); padding: 7px 4px; font-weight: 500; }
+  .section-head {
+    display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 8px;
+    font-size: 13px; font-weight: 600; color: var(--muted);
+  }
+  .link-row {
+    display: flex; align-items: center; gap: 12px; padding: 14px; background: var(--surface);
+    border-radius: 14px; margin-bottom: 16px; cursor: pointer; border: 0; width: 100%; text-align: left;
+  }
+  .link-row .t { flex: 1; font-size: 17px; font-weight: 600; }
+  .link-row .m { font-size: 15px; color: var(--muted); }
+  .chev { color: var(--muted); font-size: 18px; }
+  .composer {
+    position: absolute; left: 12px; right: 12px; bottom: 22px;
+    display: flex; flex-direction: column; gap: 6px; z-index: 6;
+  }
+  .working-line {
+    font-size: 12px; color: var(--muted); text-align: center; padding: 0 8px;
+  }
+  .working-line strong { color: var(--secondary); font-weight: 600; }
+  .composer-pill {
+    display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 999px;
+    background: rgba(255,255,255,.94);
+    box-shadow: 0 2px 16px rgba(0,0,0,.1), 0 0 0 0.5px rgba(0,0,0,.06);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  }
+  .composer .circ {
+    width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--fill);
+    display: grid; place-items: center; cursor: pointer; flex-shrink: 0; color: var(--ink);
+  }
+  .composer input {
+    flex: 1; border: 0; outline: none; background: transparent; font-size: 16px; color: var(--ink); min-width: 0;
+  }
+  .composer input::placeholder { color: var(--muted); }
+  .toast {
+    position: absolute; left: 24px; right: 24px; top: 62px;
+    background: rgba(28,28,30,.94); color: #fff; border-radius: 12px;
+    padding: 11px 14px; font-size: 14px; z-index: 40; opacity: 0; transform: translateY(-8px); pointer-events: none;
+  }
+  .toast.show { animation: toast-in 240ms var(--ease) forwards; }
+  @keyframes toast-in { to { opacity: 1; transform: translateY(0); } }
+  .empty { text-align: center; padding: 56px 24px 32px; }
+  .empty h2 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+  .empty p { margin: 0; font-size: 15px; color: var(--muted); }
+  .clarify {
+    background: var(--surface); border-radius: 14px; padding: 14px; margin-bottom: 16px;
+    box-shadow: inset 0 0 0 1px rgba(0,122,255,.25);
+  }
+  .clarify .tag { font-size: 12px; font-weight: 600; color: var(--blue); margin-bottom: 6px; }
+  .clarify h3 { margin: 0 0 12px; font-size: 17px; font-weight: 600; }
+  .zoom-head { display: flex; align-items: center; gap: 4px; margin: 0 0 16px; }
+  .zoom-head strong { flex: 1; text-align: center; font-size: 17px; margin-right: 36px; }
+  .bubble {
+    max-width: 82%; padding: 10px 14px; border-radius: 18px; margin-bottom: 8px;
+    font-size: 16px; line-height: 1.35;
+  }
+  .bubble.them { background: #e9e9eb; border-bottom-left-radius: 6px; }
+  .bubble.me { background: var(--blue); color: #fff; margin-left: auto; border-bottom-right-radius: 6px; }
+  .zoom-composer { display: flex; gap: 8px; margin-top: 20px; align-items: center; }
+  .zoom-composer input {
+    flex: 1; border: 0; background: var(--fill); border-radius: 18px; padding: 11px 14px; font-size: 16px; outline: none;
+  }
+  .agent-row { align-items: center; }
+  .agent-row .row-title { margin-bottom: 2px; }
+  .agent-row .row-meta { margin: 0; }
+  .result-extra { font-size: 13px; color: var(--blue); margin-top: 4px; }
+  .takeover {
+    position: absolute; inset: 0; z-index: 35; background: #0b0b0d; color: #fff;
+    display: flex; flex-direction: column; padding: 54px 16px 24px;
+  }
+  .takeover .bar {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
+  }
+  .takeover .screen {
+    flex: 1; border-radius: 12px; background:
+      linear-gradient(160deg, #1a2332 0%, #0d1118 60%),
+      repeating-linear-gradient(0deg, transparent, transparent 22px, rgba(255,255,255,0.03) 23px);
+    border: 1px solid rgba(255,255,255,0.08); padding: 16px; position: relative; overflow: hidden;
+  }
+  .takeover .fake-win {
+    background: rgba(255,255,255,0.06); border-radius: 8px; padding: 14px; max-width: 260px; margin: 40px auto 0;
+  }
+  .takeover label { display: block; font-size: 12px; color: rgba(255,255,255,0.55); margin-bottom: 6px; }
+  .takeover input {
+    width: 100%; border: 0; border-radius: 8px; padding: 10px 12px; font-size: 15px; margin-bottom: 10px;
+    background: rgba(255,255,255,0.1); color: #fff; outline: none;
+  }
+  .takeover .hint { font-size: 12px; color: rgba(255,255,255,0.45); margin-bottom: 12px; }
+  .lock {
+    position: absolute; inset: 0; z-index: 30;
+    background: radial-gradient(120% 80% at 70% 20%, #6b8f71 0%, transparent 55%),
+      linear-gradient(180deg, #2a4a38 0%, #0c1a14 45%, #071008 100%);
+    color: #fff; display: flex; flex-direction: column; padding: 20px 22px 28px;
+  }
+  .lock .carrier { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; opacity: .9; padding: 0 6px; }
+  .lock .clock {
+    text-align: center; font-size: 78px; font-weight: 500; letter-spacing: -0.04em; line-height: 1;
+    margin-top: 36px; color: rgba(200, 230, 200, .92);
+  }
+  .lock .date { text-align: center; font-size: 17px; font-weight: 500; color: rgba(255,255,255,.78); margin-bottom: auto; }
+  .live {
+    background: rgba(20, 20, 22, .78); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border-radius: 24px; padding: 14px 16px 12px; margin-bottom: 18px;
+  }
+  .live .top { display: flex; justify-content: space-between; font-size: 13px; color: rgba(255,255,255,.5); margin-bottom: 6px; }
+  .live h2 { margin: 0 0 6px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+  .live .next { font-size: 15px; color: rgba(255,255,255,.88); line-height: 1.3; }
+  .live .repo { font-size: 13px; color: rgba(255,255,255,.45); margin-top: 10px; }
+  .live .acts { display: flex; gap: 8px; margin-top: 12px; }
+  .live .acts .chip { font-size: 13px; padding: 6px 12px; }
+  .lock-actions { display: flex; justify-content: space-between; align-items: center; padding: 0 8px; }
+  .lock-round {
+    width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.18);
+    border: 0; color: #fff; display: grid; place-items: center;
+  }
+  .lock-open {
+    border: 0; background: rgba(255,255,255,.2); color: #fff; border-radius: 999px;
+    padding: 12px 22px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  .home-bar { width: 134px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.35); margin: 18px auto 0; }
+  .proto-note {
+    position: fixed; left: 12px; bottom: 16px; z-index: 40; font-size: 11px; color: rgba(255,255,255,0.4);
+    max-width: 180px; line-height: 1.35;
+  }
+</style>
+</head>
+<body>
+  <nav class="proto-picker" data-position="top" aria-label="Prototype variants">
+    <span class="proto-picker-highlight" aria-hidden="true"></span>
+    <button class="proto-picker-item" data-active aria-current="true">Quiet</button>
+    <button class="proto-picker-item">Stacked</button>
+    <button class="proto-picker-item">Hub</button>
+    <span class="proto-picker-divider" aria-hidden="true"></span>
+    <button class="proto-picker-item proto-picker-replay" aria-label="Replay">↻</button>
+  </nav>
+  <button class="q-toggle" id="qToggle" type="button">设计问题 A/B</button>
+  <aside class="q-panel" id="qPanel" hidden>
+    <h3>本原型默认答案（可推翻）</h3>
+    <ol>
+      <li>A1 派活进度：<span class="ans">指挥条一句工作态</span>，不进首页列表</li>
+      <li>A2 审批草稿：<span class="ans">≤3 行 +「看全文」进 zoom</span></li>
+      <li>A3 上下文：<span class="ans">回一句就回首页</span>，不做长聊</li>
+      <li>A4 摘要：<span class="ans">首页底部折叠行</span></li>
+      <li>B1 卡类型：<span class="ans">提问 / 权限 / 失败 / 接管</span>；序：接管 &gt; 权限 &gt; 失败 &gt; 提问</li>
+      <li>B2 审批动作：<span class="ans">发送 / 丢弃 / 改一句</span>（保留稍后）</li>
+      <li>B3 工作态：<span class="ans">只在指挥条</span></li>
+      <li>B4 结果卡：<span class="ans">只在摘要</span>，不进「需要你」</li>
+      <li>B5 接管：<span class="ans">倒计时 + 交还回首页</span></li>
+      <li>B6 锁屏：<span class="ans">最高优先一项 + 直接动作</span></li>
+    </ol>
+  </aside>
+  <div id="stage"></div>
+  <nav class="demo-bar" id="demoBar" aria-label="关键态直达"></nav>
+  <div class="proto-note">PROTOTYPE · throwaway<br>Quiet 主路径交接迭代</div>
+
+<script>
+const ICONS = {
+  ask: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="#fff" stroke-width="1.5"/><path d="M8 7.2v4M8 5v.8" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+  perm: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5" stroke="#fff" stroke-width="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 015 0V7" stroke="#fff" stroke-width="1.5"/></svg>`,
+  fail: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2.5 14 13H2L8 2.5Z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 7v3M8 11.5v.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  take: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5" stroke="#fff" stroke-width="1.5"/><path d="M5 12.5h6" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  done: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  plus: `<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 4v10M4 9h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+  mic: `<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="6.5" y="2.5" width="5" height="8" rx="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 8.5a4.5 4.5 0 009 0M9 13v2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  agents: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="5" cy="5" r="2" fill="#fff"/><circle cx="11" cy="5" r="2" fill="#fff"/><circle cx="5" cy="11" r="2" fill="#fff"/><circle cx="11" cy="11" r="2" fill="#fff"/></svg>`,
+  back: `<svg width="12" height="20" viewBox="0 0 12 20" fill="none"><path d="M10 2 2 10l8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  search: `<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.6"/><path d="m12.5 12.5 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+  flash: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M11 2 5 11h5l-1 7 6-9h-5l1-7Z" fill="#fff"/></svg>`,
+  cam: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="5" width="12" height="10" rx="2" stroke="#fff" stroke-width="1.5"/><path d="m14 8 4-2v8l-4-2V8Z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>`,
+  signal: `<svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="0.6"/><rect x="4.5" y="5" width="3" height="7" rx="0.6"/><rect x="9" y="2.5" width="3" height="9.5" rx="0.6"/><rect x="13.5" y="0" width="3" height="12" rx="0.6" opacity=".35"/></svg>`,
+  bat: `<svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.5" y="0.5" width="21" height="11" rx="2.5" stroke="currentColor"/><rect x="2" y="2" width="16" height="8" rx="1.5" fill="currentColor"/><path d="M23 4v4a2 2 0 000-4Z" fill="currentColor"/></svg>`,
+};
+
+const RANK = { take: 0, perm: 1, fail: 2, ask: 3 };
+const DEMOS = [
+  ["home", "首页队列"],
+  ["empty", "空状态"],
+  ["clarify", "短澄清"],
+  ["approve", "审批展开"],
+  ["working", "工作态"],
+  ["takeover", "接管"],
+  ["result", "结果卡"],
+  ["zoom", "看上下文"],
+  ["agents", "全部 Agent"],
+  ["lock", "锁屏"],
+];
+
+const DRAFT_SHORT = `Revert #482 到 fixture 基线。
+影响：登录 e2e 恢复绿。
+风险：无生产数据。`;
+const DRAFT_FULL = DRAFT_SHORT + `\n变更文件：auth.test.ts、fixture.json\n负责人：Norma · 审阅：你`;
+
+function sortItems(items) {
+  return [...items].sort((a, b) => (RANK[a.kind] ?? 9) - (RANK[b.kind] ?? 9));
+}
+
+const INITIAL = () => ({
+  screen: "home",
+  focusHub: "need",
+  continueHint: "",
+  workingLine: "",
+  toast: "",
+  zoomAgent: null,
+  inlineClarify: null,
+  digestOpen: false,
+  expandedId: null,
+  takeoverId: null,
+  takeoverSecs: 90,
+  items: sortItems([
+    { id: "t1", badge: "接管", kind: "take", title: "Ada 需要你在电脑上输密码", source: "Ada",
+      plan: "下一步：接管电脑 · 输入密码/2FA", evidence: "box · login.company.com", countdown: 90 },
+    { id: "p1", badge: "权限", kind: "perm", title: "批准外发 PR #482", source: "Norma",
+      plan: "下一步：发送 revert #482", evidence: "github.com/…/pull/482",
+      draft: DRAFT_SHORT, draftFull: DRAFT_FULL },
+    { id: "f1", badge: "失败", kind: "fail", title: "e2e 在 CI 红了", source: "Cody",
+      plan: "下一步：重跑 flaky 或开 issue", evidence: null },
+    { id: "q1", badge: "提问", kind: "ask", title: "登录失败怎么处理？", source: "Ada",
+      plan: "下一步：选 mock 还是修真 API", evidence: null },
+  ]),
+  digest: [
+    { id: "done1", title: "依赖扫描通过", source: "Cody", when: "10:12",
+      artifact: "scan-report.html", change: "0 高危 · 2 提示" },
+    { id: "done2", title: "登录页文案已改", source: "Ada", when: "09:40",
+      artifact: "PR #480", change: "+12 −4 · login.copy" },
+  ],
+});
+
+let S = INITIAL();
+let tickTimer = null;
+
+function applyDemo() {
+  const demo = new URLSearchParams(location.search).get("demo") || "home";
+  if (demo === "lock") S.screen = "lock";
+  else if (demo === "agents") S.screen = "agents";
+  else if (demo === "zoom") {
+    S.zoomAgent = S.items.find((x) => x.kind === "ask") || S.items[0] || null;
+    S.screen = S.zoomAgent ? "zoom" : "home";
+  } else if (demo === "empty") {
+    S.items = [];
+    S.continueHint = "";
+    S.inlineClarify = null;
+    S.workingLine = "";
+  } else if (demo === "clarify") {
+    S.inlineClarify = { q: "用 mock 还是修真 API？", a: "mock", b: "真 API" };
+  } else if (demo === "approve") {
+    const p = S.items.find((x) => x.kind === "perm");
+    if (p) S.expandedId = p.id;
+  } else if (demo === "working") {
+    S.workingLine = "Ada 正在修登录 · 2 个在跑";
+    S.continueHint = "";
+  } else if (demo === "takeover") {
+    const t = S.items.find((x) => x.kind === "take");
+    if (t) { S.takeoverId = t.id; S.screen = "takeover"; S.takeoverSecs = t.countdown || 90; startTick(); }
+  } else if (demo === "result") {
+    S.digestOpen = true;
+    S.items = S.items.filter((x) => x.kind !== "take"); // keep gate quieter
+  }
+  // home = default queue with takeover first
+}
+
+function startTick() {
+  clearInterval(tickTimer);
+  tickTimer = setInterval(() => {
+    if (S.screen !== "takeover" && !S.items.some((x) => x.kind === "take")) {
+      clearInterval(tickTimer); return;
+    }
+    S.takeoverSecs = Math.max(0, S.takeoverSecs - 1);
+    const t = S.items.find((x) => x.kind === "take");
+    if (t) t.countdown = S.takeoverSecs;
+    if (S.takeoverSecs === 0) toast("接管已超时（示意）");
+    refresh();
+  }, 1000);
+}
+
+function toast(msg) {
+  S.toast = msg;
+  refresh();
+  setTimeout(() => { if (S.toast === msg) { S.toast = ""; refresh(); } }, 1600);
+}
+
+function removeItem(id) {
+  const i = S.items.findIndex((x) => x.id === id);
+  if (i < 0) return null;
+  const [it] = S.items.splice(i, 1);
+  if (S.expandedId === id) S.expandedId = null;
+  return it;
+}
+
+function sendCommand(text) {
+  const t = (text || "").trim();
+  if (!t) return;
+  if (/支付|清理/.test(t)) {
+    S.items.unshift({
+      id: "n" + Date.now(), badge: "提问", kind: "ask",
+      title: "「支付相关」范围太大", source: "Norma",
+      plan: "下一步：先只做沙箱，还是包含生产？", evidence: null,
+    });
+    S.items = sortItems(S.items);
+    S.inlineClarify = null;
+    S.continueHint = "";
+    S.workingLine = "";
+    toast("复杂澄清已进「需要你」");
+  } else if (/登录|修/.test(t) && !S.inlineClarify) {
+    S.inlineClarify = { q: "用 mock 还是修真 API？", a: "mock", b: "真 API" };
+    toast("短澄清 · 内联");
+  } else {
+    S.continueHint = "";
+    S.workingLine = "Norma 已接单 · 1 个在跑";
+    toast("已交给 Norma");
+  }
+  refresh();
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+}
+
+function fmtSecs(n) {
+  const m = Math.floor(n / 60), s = n % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function statusBar(light) {
+  return `
+  <div class="status" style="${light ? "color:#fff" : ""}">
+    <span>9:41</span>
+    <span class="right" style="color:${light ? "rgba(255,255,255,.9)" : "var(--ink)"}">
+      ${ICONS.signal}${ICONS.bat}
+    </span>
+  </div>`;
+}
+
+function toastEl() {
+  return `<div class="toast ${S.toast ? "show" : ""}" role="status">${esc(S.toast || "")}</div>`;
+}
+
+function composer() {
+  const ph = S.continueHint || "对 Norma 说点什么…";
+  return `
+  <form class="composer" data-composer onsubmit="return false;">
+    ${S.workingLine ? `<div class="working-line"><strong>${esc(S.workingLine)}</strong></div>` : ""}
+    <div class="composer-pill">
+      <button type="button" class="circ" data-act="agents" title="全部 Agent">${ICONS.plus}</button>
+      <input name="q" placeholder="${esc(ph)}" autocomplete="off" />
+      <button type="button" class="circ" data-act="mic" title="语音">${ICONS.mic}</button>
+      ${S.continueHint ? `<button type="button" class="circ" data-act="clear-hint" title="清除" style="font-size:16px;font-weight:600">×</button>` : ""}
+    </div>
+  </form>`;
+}
+
+function decisionRows() {
+  if (!S.items.length) {
+    return `<div class="empty"><h2>暂时没有需要你的事</h2><p>Norma 会在需要时找你</p></div>`;
+  }
+  return `<div class="group">${S.items.map((it) => {
+    const open = S.expandedId === it.id;
+    let actions = "";
+    let extra = "";
+    if (it.kind === "perm") {
+      if (open) {
+        extra = `<div class="draft">${esc(it.draft)}
+          <div><button type="button" class="more" data-act="zoom" data-id="${it.id}">看全文</button></div></div>`;
+        actions = `
+          <button class="chip primary" data-act="send" data-id="${it.id}">发送</button>
+          <button class="chip danger" data-act="discard" data-id="${it.id}">丢弃</button>
+          <button class="chip secondary" data-act="rewrite" data-id="${it.id}">改一句</button>
+          <button class="chip link" data-act="later" data-id="${it.id}">稍后</button>`;
+      } else {
+        actions = `
+          <button class="chip primary" data-act="expand" data-id="${it.id}">展开草稿</button>
+          <button class="chip secondary" data-act="later" data-id="${it.id}">稍后</button>
+          <button class="chip link" data-act="zoom" data-id="${it.id}">看上下文</button>`;
+      }
+    } else if (it.kind === "fail") {
+      actions = `
+        <button class="chip primary" data-act="rerun" data-id="${it.id}">重跑</button>
+        <button class="chip secondary" data-act="issue" data-id="${it.id}">开 issue</button>
+        <button class="chip link" data-act="zoom" data-id="${it.id}">看上下文</button>`;
+    } else if (it.kind === "take") {
+      extra = `<div class="countdown">剩余 ${fmtSecs(it.countdown ?? S.takeoverSecs)}</div>`;
+      actions = `
+        <button class="chip primary" data-act="open-take" data-id="${it.id}">接管电脑</button>
+        <button class="chip secondary" data-act="later" data-id="${it.id}">稍后</button>`;
+    } else {
+      actions = `
+        <button class="chip primary" data-act="handle" data-id="${it.id}">处理</button>
+        <button class="chip secondary" data-act="later" data-id="${it.id}">稍后</button>
+        <button class="chip link" data-act="zoom" data-id="${it.id}">看上下文</button>`;
+    }
+    return `
+    <div class="row">
+      <div class="glyph ${it.kind}">${ICONS[it.kind]}</div>
+      <div class="row-body">
+        <div class="row-title">${esc(it.title)}</div>
+        <div class="row-meta">${esc(it.badge)} · ${esc(it.source)}${it.evidence ? " · " + esc(it.evidence) : ""}</div>
+        <div class="row-plan">${esc(it.plan)}</div>
+        ${extra}
+        <div class="row-actions">${actions}</div>
+      </div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function digestList() {
+  return `<div class="group">${S.digest.map((d) => `
+    <div class="row">
+      <div class="glyph done">${ICONS.done}</div>
+      <div class="row-body">
+        <div class="row-title">${esc(d.title)}</div>
+        <div class="row-meta">${esc(d.when)} · ${esc(d.source)}</div>
+        ${d.artifact ? `<div class="result-extra">${esc(d.artifact)} · ${esc(d.change || "")}</div>` : ""}
+        <div class="row-actions" style="margin-top:8px">
+          <button class="chip link" data-act="continue-result" data-title="${esc(d.title)}">继续</button>
+        </div>
+      </div>
+    </div>`).join("")}</div>`;
+}
+
+function digestBlock() {
+  return `
+  <button class="link-row" data-act="toggle-digest">
+    <div class="glyph done">${ICONS.done}</div>
+    <span class="t">摘要</span>
+    <span class="m">${S.digest.length}</span>
+    <span class="chev">${S.digestOpen ? "▾" : "›"}</span>
+  </button>
+  ${S.digestOpen ? digestList() : ""}`;
+}
+
+function clarifyBlock() {
+  if (!S.inlineClarify) return "";
+  const c = S.inlineClarify;
+  return `
+  <div class="clarify">
+    <div class="tag">短澄清 · Norma</div>
+    <h3>${esc(c.q)}</h3>
+    <div class="row-actions">
+      <button class="chip primary" data-act="inline" data-v="${esc(c.a)}">${esc(c.a)}</button>
+      <button class="chip secondary" data-act="inline" data-v="${esc(c.b)}">${esc(c.b)}</button>
+    </div>
+  </div>`;
+}
+
+function topIcons() {
+  return `
+  <div class="topbar">
+    <button class="icon-btn" data-act="lock" title="锁屏示意" aria-label="锁屏">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 015 0V7" stroke="currentColor" stroke-width="1.5"/></svg>
+    </button>
+    <div class="topbar-actions">
+      <button class="icon-btn" data-act="agents" title="全部 Agent">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><circle cx="5" cy="5" r="1.8" fill="currentColor"/><circle cx="11" cy="5" r="1.8" fill="currentColor"/><circle cx="5" cy="11" r="1.8" fill="currentColor"/><circle cx="11" cy="11" r="1.8" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </div>`;
+}
+
+function lockScreen() {
+  const top = S.items[0];
+  const next = top ? top.plan : "暂时没有需要你的事";
+  const showActs = top && (top.kind === "take" || top.kind === "perm");
+  let acts = "";
+  if (top && top.kind === "take") {
+    acts = `<div class="acts">
+      <button class="chip primary" data-act="open-take" data-id="${top.id}">接管</button>
+      <button class="chip secondary" data-act="unlock">打开</button>
+    </div>`;
+  } else if (top && top.kind === "perm") {
+    acts = `<div class="acts">
+      <button class="chip primary" data-act="unlock-expand" data-id="${top.id}">批准</button>
+      <button class="chip secondary" data-act="unlock">打开</button>
+    </div>`;
+  }
+  return `
+  <div class="lock" data-lock>
+    <div class="carrier"><span>Norma</span><span class="right" style="display:flex;gap:5px;align-items:center">${ICONS.signal}${ICONS.bat}</span></div>
+    <div class="clock">9:41</div>
+    <div class="date">10月5日 周一</div>
+    <div class="live">
+      <div class="top"><span>需要你${S.items.length ? " · " + S.items.length : ""}</span><span>刚刚</span></div>
+      <h2>${top ? esc(top.title) : "Norma"}</h2>
+      <div class="next">${esc(next)}</div>
+      <div class="repo">Norma-AI-OS</div>
+      ${showActs ? acts : ""}
+    </div>
+    <div class="lock-actions">
+      <button class="lock-round" aria-hidden="true">${ICONS.flash}</button>
+      <button class="lock-open" data-act="unlock">打开 App</button>
+      <button class="lock-round" aria-hidden="true">${ICONS.cam}</button>
+    </div>
+    <div class="home-bar"></div>
+  </div>`;
+}
+
+function takeoverScreen() {
+  return `
+  <div class="takeover">
+    <div class="bar">
+      <button class="chip secondary" data-act="home" style="background:rgba(255,255,255,.12);color:#fff">返回</button>
+      <span style="font-size:13px;color:rgba(255,255,255,.6)">剩余 ${fmtSecs(S.takeoverSecs)}</span>
+      <button class="chip primary" data-act="return-control">交还</button>
+    </div>
+    <div class="screen">
+      <div class="fake-win">
+        <label>密码（假数据）</label>
+        <input type="password" value="••••••••" readonly />
+        <label>2FA 验证码</label>
+        <input value="482 911" readonly />
+        <div class="hint">示意：填完后点「交还」，卡出队并回首页</div>
+        <button class="chip primary" data-act="return-control">提交并交还</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function zoomScreen() {
+  const a = S.zoomAgent;
+  if (!a) return "";
+  const body = a.draftFull || a.draft || a.plan;
+  return `
+  ${statusBar()}
+  <div class="scroll">
+    <div class="zoom-head">
+      <button class="icon-btn ghost" data-act="home">${ICONS.back}</button>
+      <strong>${esc(a.source)}</strong>
+    </div>
+    <div class="bubble them">卡住时临时看一眼上下文。回一句就回首页。</div>
+    <div class="bubble them" style="white-space:pre-wrap">${esc(body)}</div>
+    <form class="zoom-composer" data-zoom-form onsubmit="return false;">
+      <input name="z" placeholder="回一句…" />
+      <button class="chip primary" data-act="zoom-send">发送</button>
+    </form>
+  </div>`;
+}
+
+function agentsScreen() {
+  return `
+  ${statusBar()}
+  <div class="scroll">
+    <div class="topbar">
+      <button class="icon-btn ghost" data-act="home">${ICONS.back}</button>
+      <div class="topbar-actions"><button class="icon-btn" aria-hidden="true">${ICONS.search}</button></div>
+    </div>
+    <h1 class="large-title">全部 Agent</h1>
+    <div class="section-head"><span>Working</span></div>
+    <div class="group">
+      <div class="row agent-row"><div class="glyph agent">${ICONS.agents}</div><div class="row-body"><div class="row-title">Ada</div><div class="row-meta">Working · 修登录</div></div></div>
+      <div class="row agent-row"><div class="glyph agent">${ICONS.agents}</div><div class="row-body"><div class="row-title">Cody</div><div class="row-meta">Working · CI</div></div></div>
+    </div>
+    <div class="section-head"><span>Idle</span></div>
+    <div class="group">
+      <div class="row agent-row"><div class="glyph idle">${ICONS.agents}</div><div class="row-body"><div class="row-title">Morgan</div><div class="row-meta">Idle · Norma-AI-OS</div></div></div>
+    </div>
+  </div>
+  ${composer()}`;
+}
+
+function renderQuiet() {
+  if (S.screen === "lock") return `<div class="phone"><div class="island"></div>${lockScreen()}</div>`;
+  if (S.screen === "zoom") return `<div class="phone"><div class="island"></div>${zoomScreen()}</div>`;
+  if (S.screen === "agents") return `<div class="phone"><div class="island"></div>${agentsScreen()}</div>`;
+  if (S.screen === "takeover") return `<div class="phone"><div class="island"></div>${takeoverScreen()}</div>`;
+  return `
+  <div class="phone" data-variant="Quiet">
+    <div class="island"></div>
+    ${toastEl()}
+    ${statusBar()}
+    <div class="scroll">
+      ${topIcons()}
+      <h1 class="large-title">需要你</h1>
+      <p class="subtitle">${S.items.length ? S.items.length + " 项待处理" : "闸门清空"}</p>
+      ${clarifyBlock()}
+      ${decisionRows()}
+      ${digestBlock()}
+    </div>
+    ${composer()}
+  </div>`;
+}
+
+function renderStacked() {
+  // contrast only — same state machine, top composer
+  if (S.screen === "lock") return `<div class="phone"><div class="island"></div>${lockScreen()}</div>`;
+  if (S.screen === "zoom") return `<div class="phone"><div class="island"></div>${zoomScreen()}</div>`;
+  if (S.screen === "agents") return `<div class="phone"><div class="island"></div>${agentsScreen()}</div>`;
+  if (S.screen === "takeover") return `<div class="phone"><div class="island"></div>${takeoverScreen()}</div>`;
+  return `
+  <div class="phone" data-variant="Stacked">
+    <div class="island"></div>
+    ${toastEl()}
+    ${statusBar()}
+    <div class="scroll" style="padding-bottom:28px">
+      <div style="margin:0 -16px 14px;padding:10px 16px 0;background:rgba(242,242,247,.92)">${composer()}</div>
+      ${topIcons()}
+      <h1 class="large-title">需要你</h1>
+      <p class="subtitle">${S.items.length ? S.items.length + " 项待处理" : "闸门清空"}</p>
+      ${clarifyBlock()}
+      ${decisionRows()}
+      ${digestBlock()}
+    </div>
+  </div>`;
+}
+
+function renderHub() {
+  if (S.screen === "lock") return `<div class="phone"><div class="island"></div>${lockScreen()}</div>`;
+  if (S.screen === "zoom") return `<div class="phone"><div class="island"></div>${zoomScreen()}</div>`;
+  if (S.screen === "agents") return `<div class="phone"><div class="island"></div>${agentsScreen()}</div>`;
+  if (S.screen === "takeover") return `<div class="phone"><div class="island"></div>${takeoverScreen()}</div>`;
+  const need = S.focusHub !== "digest";
+  return `
+  <div class="phone" data-variant="Hub">
+    <div class="island"></div>
+    ${toastEl()}
+    ${statusBar()}
+    <div class="scroll">
+      ${topIcons()}
+      <h1 class="large-title">今日</h1>
+      <p class="subtitle">对照用 · 主方向仍是 Quiet</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <button class="chip ${need ? "primary" : "secondary"}" data-act="hub" data-hub="need">需要你 · ${S.items.length}</button>
+        <button class="chip ${!need ? "primary" : "secondary"}" data-act="hub" data-hub="digest">摘要 · ${S.digest.length}</button>
+      </div>
+      ${clarifyBlock()}
+      ${need ? decisionRows() : digestList()}
+    </div>
+    ${composer()}
+  </div>`;
+}
+
+const variants = [renderQuiet, renderStacked, renderHub];
+const stage = document.getElementById("stage");
+const picker = document.querySelector(".proto-picker");
+const highlight = picker.querySelector(".proto-picker-highlight");
+const items = [...picker.querySelectorAll(".proto-picker-item:not(.proto-picker-replay)")];
+const replay = picker.querySelector(".proto-picker-replay");
+let current = 0;
+
+function moveHighlight() {
+  const el = items[current];
+  highlight.style.width = el.offsetWidth + "px";
+  highlight.style.transform = `translateX(${el.offsetLeft}px)`;
+}
+
+function wirePhone(root) {
+  root.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-act]");
+    if (!t) return;
+    const act = t.getAttribute("data-act");
+    const id = t.getAttribute("data-id");
+    if (act === "expand") { S.expandedId = id; refresh(); }
+    else if (act === "send" || act === "discard" || act === "handle" || act === "rerun" || act === "issue") {
+      const it = removeItem(id);
+      if (it) {
+        S.workingLine = act === "discard" ? "" : `${it.source} 执行中 · 1 个在跑`;
+        if (act === "send" || act === "handle" || act === "rerun") {
+          S.digest.unshift({
+            id: "d" + Date.now(), title: it.title + " · 已处理", source: it.source, when: "刚刚",
+            artifact: "产出物链接", change: "一行变更摘要",
+          });
+        }
+        toast(act === "discard" ? "已丢弃" : act === "issue" ? "已开 issue（示意）" : "已交回 · 执行中");
+      }
+      refresh();
+    } else if (act === "rewrite") {
+      S.continueHint = "继续：改…";
+      S.expandedId = null;
+      toast("已预填指挥条");
+      refresh();
+    } else if (act === "later") toast("已稍后 · 仍在「需要你」");
+    else if (act === "zoom") {
+      const it = S.items.find((x) => x.id === id) || { id, source: "Norma", plan: "", draftFull: DRAFT_FULL };
+      S.screen = "zoom"; S.zoomAgent = it; refresh();
+    } else if (act === "home") { S.screen = "home"; S.takeoverId = null; refresh(); }
+    else if (act === "agents") { S.screen = "agents"; refresh(); }
+    else if (act === "lock") { S.screen = "lock"; refresh(); }
+    else if (act === "unlock") { S.screen = "home"; refresh(); }
+    else if (act === "unlock-expand") {
+      S.screen = "home"; S.expandedId = id; refresh();
+    } else if (act === "open-take") {
+      S.takeoverId = id; S.screen = "takeover";
+      const it = S.items.find((x) => x.id === id);
+      S.takeoverSecs = (it && it.countdown) || 90;
+      startTick(); refresh();
+    } else if (act === "return-control") {
+      removeItem(S.takeoverId);
+      S.takeoverId = null; S.screen = "home";
+      S.workingLine = "Ada 继续跑 · 1 个在跑";
+      clearInterval(tickTimer);
+      toast("已交还控制"); refresh();
+    } else if (act === "clear-hint") { S.continueHint = ""; refresh(); }
+    else if (act === "mic") toast("语音录入（示意）");
+    else if (act === "inline") {
+      S.inlineClarify = null;
+      S.continueHint = "";
+      S.workingLine = `继续：修登录（${t.getAttribute("data-v")}）· 执行中`;
+      toast(`已选 ${t.getAttribute("data-v")}`);
+      refresh();
+    } else if (act === "hub") { S.focusHub = t.getAttribute("data-hub"); refresh(); }
+    else if (act === "zoom-send") {
+      toast("已回一句 · 回首页");
+      setTimeout(() => { S.screen = "home"; refresh(); }, 500);
+    } else if (act === "toggle-digest") { S.digestOpen = !S.digestOpen; refresh(); }
+    else if (act === "continue-result") {
+      S.continueHint = `继续：${t.getAttribute("data-title")}…`;
+      toast("已预填指挥条"); refresh();
+    }
+  });
+  const form = root.querySelector("[data-composer]");
+  if (form) {
+    const input = form.querySelector("input");
+    const go = () => { sendCommand(input.value); input.value = ""; };
+    form.addEventListener("submit", (e) => { e.preventDefault(); go(); });
+    input?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); go(); }
+    });
+  }
+}
+
+function mount(i) {
+  S = INITIAL();
+  applyDemo();
+  current = i;
+  stage.innerHTML = variants[i]();
+  wirePhone(stage);
+  items.forEach((el, idx) => {
+    if (idx === i) { el.setAttribute("data-active", ""); el.setAttribute("aria-current", "true"); }
+    else { el.removeAttribute("data-active"); el.removeAttribute("aria-current"); }
+  });
+  requestAnimationFrame(() => { moveHighlight(); picker.setAttribute("data-ready", ""); });
+  paintDemoBar();
+}
+
+function refresh() {
+  stage.innerHTML = variants[current]();
+  wirePhone(stage);
+}
+
+function setActive(i) {
+  if (i < 0 || i >= variants.length) return;
+  const url = new URL(location.href);
+  url.searchParams.set("v", String(i + 1));
+  history.replaceState(null, "", url);
+  mount(i);
+}
+
+function paintDemoBar() {
+  const cur = new URLSearchParams(location.search).get("demo") || "home";
+  const bar = document.getElementById("demoBar");
+  bar.innerHTML = DEMOS.map(([k, label]) => {
+    const u = new URL(location.href);
+    u.searchParams.set("demo", k);
+    return `<a href="${u.pathname}${u.search}" ${k === cur ? "data-on" : ""}>${label}</a>`;
+  }).join("");
+}
+
+items.forEach((el, i) => el.addEventListener("click", () => setActive(i)));
+replay.addEventListener("click", () => mount(current));
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
+  const num = parseInt(e.key, 10);
+  if (num >= 1 && num <= variants.length) setActive(num - 1);
+  else if (e.key === "ArrowRight") setActive((current + 1) % variants.length);
+  else if (e.key === "ArrowLeft") setActive((current - 1 + variants.length) % variants.length);
+  else if (e.key === "r" || e.key === "R") mount(current);
+});
+
+document.getElementById("qToggle").addEventListener("click", () => {
+  const p = document.getElementById("qPanel");
+  p.hidden = !p.hidden;
+});
+
+setActive((parseInt(new URLSearchParams(location.search).get("v"), 10) || 1) - 1);
+</script>
+</body>
+</html>
